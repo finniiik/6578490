@@ -1,42 +1,47 @@
 "use strict";
 
-"use strict";
-
 const cvs = document.getElementById("canvas");
 const ctx = cvs.getContext("2d", { alpha: true });
 
-// ---------- РЕСУРСЫ ----------
-const birdVideo = document.createElement("video");
-birdVideo.src = "src/bird1.webm";
-birdVideo.loop = true;
-birdVideo.muted = true;
-birdVideo.playsInline = true;
-birdVideo.setAttribute("playsinline", "");
-birdVideo.preload = "auto";
-birdVideo.play().catch(() => {});
+// ---------- STATE ----------
+let gameState = "loading"; // loading | play | gameover | win
 
+// ---------- RESOURCES ----------
 const bg = new Image();
 bg.src = "src/bg.png";
 
-// 🔊 ЗВУКИ
+const coinImg = new Image();
+coinImg.src = "src/coin.png";
+
+// ---------- SOUND ----------
 const music = new Audio("src/music.mp3");
 music.loop = true;
 music.volume = 0.5;
-music.preload = "auto";
 
 const jumpSound = new Audio("src/jump.mp3");
 jumpSound.volume = 1;
-jumpSound.preload = "auto";
 
-// ---------- НАСТРОЙКИ ----------
-const GAP = 205;
-const PIPE_WIDTH = 61
+// ---------- BIRD SPRITES ----------
+const birdFrames = [];
+let birdFrameIndex = 0;
+let birdFrameTick = 0;
+
+for (let i = 1; i <= 26; i++) {
+const img = new Image();
+const num = String(i).padStart(3, "0");
+img.src = `src/frames/ezgif-frame-${num}-Photoroom.png`;
+birdFrames.push(img);
+}
+
+// ---------- SETTINGS ----------
+const GAP = 201;
+const PIPE_WIDTH = 60;
 
 const GRAVITY = 0.45;
 const JUMP_FORCE = -7.5;
 
 const PIPE_SPEED = 1.1;
-const PIPE_DISTANCE = 240;
+const PIPE_DISTANCE = 220;
 
 const BIRD_WIDTH = 55;
 const BIRD_HEIGHT = 55;
@@ -46,62 +51,51 @@ const MAX_RISE = -9;
 
 const MAX_SCORE = 67;
 
-// ---------- СОСТОЯНИЕ ----------
+const GROUND_HEIGHT = 50;
+
+// ---------- STATE ----------
 let bX = 20;
 let bY = 150;
 let velocity = 0;
 
 let score = 0;
-let gameOver = false;
-let pipes = [];
+let coinCount = 0;
 
-let animationFrameId = null;
+let gameOver = false;
 let gameStarted = false;
 
-let isMobile = false;
+let pipes = [];
+let particles = [];
 
-// ---------- MOBILЕ BLACK-FIX BUFFER ----------
-const birdBuffer = document.createElement("canvas");
-birdBuffer.width = BIRD_WIDTH;
-birdBuffer.height = BIRD_HEIGHT;
-const birdBufferCtx = birdBuffer.getContext("2d", { willReadFrequently: true });
-
-// ---------- МОБИЛКА FIX ----------
+// ---------- CANVAS FIX ----------
+document.body.style.margin = "0";
 document.body.style.overflow = "hidden";
+cvs.style.display = "block";
 cvs.style.touchAction = "none";
 
-// ---------- АДАПТАЦИЯ ----------
-function updateDeviceMode() {
-isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 900;
-}
-
 function resizeCanvas() {
-updateDeviceMode();
+const w = 288;
+const h = 512;
 
-const baseWidth = 288;
-const baseHeight = 512;
+const s = Math.min(window.innerWidth / w, window.innerHeight / h, 1.2);
 
-const scale = isMobile
-? Math.max(window.innerWidth / baseWidth, window.innerHeight / baseHeight)
-: Math.min(window.innerWidth / baseWidth, window.innerHeight / baseHeight, 1.2);
+cvs.width = w;
+cvs.height = h;
 
-cvs.width = baseWidth;
-cvs.height = baseHeight;
-
-cvs.style.width = `${Math.round(baseWidth * scale)}px`;
-cvs.style.height = `${Math.round(baseHeight * scale)}px`;
+cvs.style.width = w * s + "px";
+cvs.style.height = h * s + "px";
 }
 
 window.addEventListener("resize", resizeCanvas);
-window.addEventListener("orientationchange", resizeCanvas);
 resizeCanvas();
 
-// ---------- ТРУБЫ ----------
+// ---------- PIPE ----------
 function createPipe(offset = 0) {
 return {
 x: cvs.width + offset,
 topHeight: Math.floor(Math.random() * 180) + 60,
-passed: false
+passed: false,
+coinTaken: false
 };
 }
 
@@ -112,59 +106,56 @@ pipes.push(createPipe(i * PIPE_DISTANCE));
 }
 }
 
-// ---------- СБРОС ----------
+// ---------- PARTICLES ----------
+function spawnParticles(x, y) {
+for (let i = 0; i < 10; i++) {
+particles.push({
+x,
+y,
+vx: (Math.random() - 0.5) * 3,
+vy: (Math.random() - 0.5) * 3,
+life: 25
+});
+}
+}
+
+// ---------- RESET ----------
 function resetGame() {
 bY = 150;
 velocity = 0;
 score = 0;
+coinCount = 0;
 gameOver = false;
+gameState = "play";
 
 initPipes();
-
-birdVideo.currentTime = 0;
-birdVideo.play().catch(() => {});
 
 music.currentTime = 0;
 music.play().catch(() => {});
 }
 
-// ---------- ЗВУК ПРЫЖКА ----------
-function playJumpSound() {
-const s = jumpSound.cloneNode(true);
-s.volume = jumpSound.volume;
-s.play().catch(() => {});
-}
-
-// ---------- СТАРТ ----------
+// ---------- START ----------
 function startGame() {
 if (gameStarted) return;
 
 gameStarted = true;
 initPipes();
-
 music.play().catch(() => {});
-
-if (!animationFrameId) {
-animationFrameId = requestAnimationFrame(draw);
-}
+requestAnimationFrame(draw);
 }
 
-bg.onload = startGame;
-
-// ---------- ПРЫЖОК ----------
+// ---------- INPUT ----------
 function jump(e) {
 if (e) e.preventDefault();
 
-if (!gameStarted) {
-startGame();
-}
-
-if (gameOver) {
+if (gameState === "gameover" || gameState === "win") {
 resetGame();
 return;
 }
 
-playJumpSound();
+if (!gameStarted) startGame();
+
+jumpSound.cloneNode(true).play().catch(() => {});
 velocity = JUMP_FORCE;
 }
 
@@ -175,72 +166,105 @@ jump(e);
 }
 });
 
-cvs.addEventListener("pointerdown", jump, { passive: false });
+cvs.addEventListener("pointerdown", jump);
 
-// ---------- РИСОВАНИЕ ПТИЦЫ ----------
+// ---------- BIRD ----------
 function drawBird() {
-if (isMobile) {
-birdBufferCtx.clearRect(0, 0, BIRD_WIDTH, BIRD_HEIGHT);
-birdBufferCtx.drawImage(birdVideo, 0, 0, BIRD_WIDTH, BIRD_HEIGHT);
+birdFrameTick++;
 
-const frame = birdBufferCtx.getImageData(0, 0, BIRD_WIDTH, BIRD_HEIGHT);
-const d = frame.data;
-
-for (let i = 0; i < d.length; i += 4) {
-if (d[i] <= 12 && d[i + 1] <= 12 && d[i + 2] <= 12) {
-d[i + 3] = 0;
-}
+if (birdFrameTick % 3 === 0) {
+birdFrameIndex = (birdFrameIndex + 1) % birdFrames.length;
 }
 
-ctx.putImageData(frame, Math.round(bX), Math.round(bY));
-return;
-}
+const frame = birdFrames[birdFrameIndex];
 
-ctx.drawImage(birdVideo, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
+if (frame && frame.complete) {
+ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
+}
 }
 
 // ---------- DRAW ----------
 function draw() {
 ctx.clearRect(0, 0, cvs.width, cvs.height);
 
-// фон
+// background
 if (bg.complete) {
 ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
-} else {
-ctx.fillStyle = "#70c5ce";
-ctx.fillRect(0, 0, cvs.width, cvs.height);
 }
 
-// трубы
+// ---------- PARTICLES ----------
+for (let i = 0; i < particles.length; i++) {
+const p = particles[i];
+
+p.x += p.vx;
+p.y += p.vy;
+p.life--;
+
+ctx.fillStyle = "yellow";
+ctx.fillRect(p.x, p.y, 3, 3);
+
+if (p.life <= 0) {
+particles.splice(i, 1);
+i--;
+}
+}
+
+// ---------- PIPES ----------
 for (let i = 0; i < pipes.length; i++) {
 const p = pipes[i];
 const bottom = p.topHeight + GAP;
 
+// верхняя труба
 ctx.fillStyle = "#228B22";
 ctx.fillRect(p.x, 0, PIPE_WIDTH, p.topHeight);
+
+// нижняя труба (ВАЖНО: без обрезки)
 ctx.fillRect(p.x, bottom, PIPE_WIDTH, cvs.height - bottom);
 
 if (!gameOver) {
 p.x -= PIPE_SPEED;
 
-const birdRight = bX + BIRD_WIDTH;
-const birdBottom = bY + BIRD_HEIGHT;
+const right = bX + BIRD_WIDTH;
+const bot = bY + BIRD_HEIGHT;
 
 if (
-birdRight > p.x &&
+right > p.x &&
 bX < p.x + PIPE_WIDTH &&
-(bY < p.topHeight || birdBottom > bottom)
+(bY < p.topHeight || bot > bottom)
 ) {
 gameOver = true;
+gameState = "gameover";
 }
 
-if (birdBottom > cvs.height - 50) {
+// земля (фикс нормальный)
+if (bot >= cvs.height - GROUND_HEIGHT) {
 gameOver = true;
+gameState = "gameover";
 }
 
+// score
 if (!p.passed && p.x + PIPE_WIDTH < bX) {
 p.passed = true;
 score++;
+}
+
+// coin
+const coinY = p.topHeight + GAP / 2;
+
+if (!p.coinTaken) {
+ctx.drawImage(coinImg, p.x + 10, coinY, 24, 24);
+
+const hit =
+bX < p.x + 24 &&
+bX + BIRD_WIDTH > p.x &&
+bY < coinY + 24 &&
+bY + BIRD_HEIGHT > coinY;
+
+if (hit) {
+p.coinTaken = true;
+coinCount++;
+spawnParticles(p.x + 12, coinY + 12);
+}
 }
 
 if (p.x + PIPE_WIDTH < 0) {
@@ -250,7 +274,7 @@ i--;
 }
 }
 
-// спавн
+// spawn pipes
 if (!gameOver) {
 const last = pipes[pipes.length - 1];
 if (last && last.x < cvs.width - PIPE_DISTANCE) {
@@ -258,60 +282,73 @@ pipes.push(createPipe());
 }
 }
 
-// физика
+// physics
 if (!gameOver) {
 velocity += GRAVITY;
-
 if (velocity > MAX_FALL) velocity = MAX_FALL;
 if (velocity < MAX_RISE) velocity = MAX_RISE;
-
 bY += velocity;
 }
 
-// птица
-if (birdVideo.readyState >= 2) {
 drawBird();
-}
 
-// земля
-ctx.fillStyle = "#8B4513";
-ctx.fillRect(0, cvs.height - 50, cvs.width, 50);
-
-// SCORE
+// ---------- UI ----------
 ctx.fillStyle = "#000";
 ctx.font = "20px Arial";
 ctx.textAlign = "left";
 ctx.textBaseline = "top";
-ctx.fillText("Score: " + score, 10, 30);
 
-// ПОБЕДА
+ctx.fillText("Score: " + score, 10, 10);
+ctx.fillText("Coins: " + coinCount, 10, 35);
+
+// ---------- WIN ----------
 if (score >= MAX_SCORE) {
-ctx.fillStyle = "rgba(0,0,0,0.7)";
-ctx.fillRect(0, cvs.height / 2 - 40, cvs.width, 80);
-
-ctx.fillStyle = "#fff";
-ctx.textAlign = "center";
-ctx.textBaseline = "middle";
-ctx.font = "20px Arial";
-ctx.fillText("ПОЧЕМУ ИЛЬЯ SHOWS 67", cvs.width / 2, cvs.height / 2);
-
+gameState = "win";
 gameOver = true;
 }
 
-// GAME OVER
-if (gameOver && score < MAX_SCORE) {
-ctx.fillStyle = "rgba(0,0,0,0.6)";
-ctx.fillRect(0, cvs.height / 2 - 40, cvs.width, 80);
+// ---------- LOADING ----------
+if (gameState === "loading") {
+ctx.fillStyle = "rgba(0,0,0,0.85)";
+ctx.fillRect(0, 0, cvs.width, cvs.height);
 
 ctx.fillStyle = "#fff";
 ctx.textAlign = "center";
-ctx.textBaseline = "middle";
-ctx.font = "24px Arial";
-ctx.fillText("GAME OVER", cvs.width / 2, cvs.height / 2);
+
+ctx.font = "22px Arial";
+ctx.fillText("PIRATEBIRD", cvs.width / 2, cvs.height / 2 - 20);
 
 ctx.font = "14px Arial";
-ctx.fillText("tap or space", cvs.width / 2, cvs.height / 2 + 25);
+ctx.fillText("MADE BY KOLESO FORTUNY", cvs.width / 2, cvs.height / 2 + 20);
 }
 
-animationFrameId = requestAnimationFrame(draw);
+// gameover
+if (gameState === "gameover") {
+ctx.fillStyle = "rgba(0,0,0,0.75)";
+ctx.fillRect(0, 0, cvs.width, cvs.height);
+
+ctx.fillStyle = "#fff";
+ctx.textAlign = "center";
+ctx.font = "28px Arial";
+ctx.fillText("GAME OVER", cvs.width / 2, cvs.height / 2);
 }
+
+// win
+if (gameState === "win") {
+ctx.fillStyle = "rgba(0,0,0,0.8)";
+ctx.fillRect(0, 0, cvs.width, cvs.height);
+
+ctx.fillStyle = "#fff";
+ctx.textAlign = "center";
+ctx.font = "22px Arial";
+ctx.fillText("ПОЧЕМУ ИЛЬЯ SHOWS 67", cvs.width / 2, cvs.height / 2);
+}
+
+requestAnimationFrame(draw);
+}
+
+// ---------- START ----------
+bg.onload = () => {
+gameState = "play";
+startGame();
+};
