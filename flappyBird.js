@@ -7,7 +7,7 @@ const ctx = cvs.getContext("2d", { alpha: true });
 
 // ---------- РЕСУРСЫ ----------
 const birdVideo = document.createElement("video");
-birdVideo.src = "src/bird.webm";
+birdVideo.src = "src/bird1.webm";
 birdVideo.loop = true;
 birdVideo.muted = true;
 birdVideo.playsInline = true;
@@ -29,14 +29,14 @@ jumpSound.volume = 1;
 jumpSound.preload = "auto";
 
 // ---------- НАСТРОЙКИ ----------
-const GAP = 200;
-const PIPE_WIDTH = 60;
+const GAP = 205;
+const PIPE_WIDTH = 61
 
 const GRAVITY = 0.45;
 const JUMP_FORCE = -7.5;
 
 const PIPE_SPEED = 1.1;
-const PIPE_DISTANCE = 220;
+const PIPE_DISTANCE = 240;
 
 const BIRD_WIDTH = 55;
 const BIRD_HEIGHT = 55;
