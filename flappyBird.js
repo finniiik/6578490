@@ -49,7 +49,7 @@ const BIRD_HEIGHT = 45;
 const MAX_FALL = 7;
 const MAX_RISE = -9;
 
-const MAX_SCORE = 10;
+const MAX_SCORE = 67;
 
 const GROUND_HEIGHT = 50;
 
