@@ -43,7 +43,7 @@ const JUMP_FORCE = -7.5;
 const PIPE_SPEED = 1.1;
 const PIPE_DISTANCE = 220;
 
-const BIRD_WIDTH = 55;
+const BIRD_WIDTH = 45;
 const BIRD_HEIGHT = 45;
 
 const MAX_FALL = 7;
