@@ -43,7 +43,7 @@ const JUMP_FORCE = -7.5;
 const PIPE_SPEED = 1.1;
 const PIPE_DISTANCE = 220;
 
-const BIRD_WIDTH = 45;
+const BIRD_WIDTH = 55;
 const BIRD_HEIGHT = 45;
 
 const MAX_FALL = 7;
@@ -66,6 +66,7 @@ let gameStarted = false;
 
 let pipes = [];
 let particles = [];
+let lastTime = 0;
 
 // ---------- CANVAS FIX ----------
 document.body.style.margin = "0";
@@ -121,6 +122,7 @@ life: 25
 
 // ---------- RESET ----------
 function resetGame() {
+    lastTime = 0;
 bY = 150;
 velocity = 0;
 score = 0;
@@ -141,6 +143,9 @@ if (gameStarted) return;
 gameStarted = true;
 initPipes();
 music.play().catch(() => {});
+
+lastTime = performance.now();
+
 requestAnimationFrame(draw);
 }
 
@@ -184,8 +189,9 @@ ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
 }
 
 // ---------- DRAW ----------
-function draw() {
-ctx.clearRect(0, 0, cvs.width, cvs.height);
+function draw(time) {
+const dt = (time - lastTime) / 16.67;
+lastTime = time;
 
 // background
 if (bg.complete) {
@@ -196,9 +202,9 @@ ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
 for (let i = 0; i < particles.length; i++) {
 const p = particles[i];
 
-p.x += p.vx;
-p.y += p.vy;
-p.life--;
+p.x += p.vx * dt;
+p.y += p.vy * dt;
+p.life -= dt;
 
 ctx.fillStyle = "yellow";
 ctx.fillRect(p.x, p.y, 3, 3);
@@ -222,7 +228,7 @@ ctx.fillRect(p.x, 0, PIPE_WIDTH, p.topHeight);
 ctx.fillRect(p.x, bottom, PIPE_WIDTH, cvs.height - bottom);
 
 if (!gameOver) {
-p.x -= PIPE_SPEED;
+p.x -= PIPE_SPEED * dt;
 
 const right = bX + BIRD_WIDTH;
 const bot = bY + BIRD_HEIGHT;
@@ -282,12 +288,14 @@ pipes.push(createPipe());
 }
 }
 
-// physics
+
 if (!gameOver) {
-velocity += GRAVITY;
+velocity += GRAVITY * dt;
+
 if (velocity > MAX_FALL) velocity = MAX_FALL;
 if (velocity < MAX_RISE) velocity = MAX_RISE;
-bY += velocity;
+
+bY += velocity * dt;
 }
 
 drawBird();
