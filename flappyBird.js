@@ -6,6 +6,9 @@ const ctx = cvs.getContext("2d", { alpha: true });
 // ---------- STATE ----------
 let gameState = "loading"; // loading | play | gameover | win
 
+// ---------- TIME ----------
+let lastTime = 0;
+
 // ---------- RESOURCES ----------
 const bg = new Image();
 bg.src = "src/bg.png";
@@ -184,7 +187,10 @@ ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
 }
 
 // ---------- DRAW ----------
-function draw() {
+function draw(time = 0) {
+const dt = Math.min((time - lastTime) / 16.67, 2);
+lastTime = time;
+
 ctx.clearRect(0, 0, cvs.width, cvs.height);
 
 // background
@@ -196,8 +202,8 @@ ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
 for (let i = 0; i < particles.length; i++) {
 const p = particles[i];
 
-p.x += p.vx;
-p.y += p.vy;
+p.x += p.vx * dt;
+p.y += p.vy * dt;
 p.life--;
 
 ctx.fillStyle = "yellow";
@@ -214,15 +220,12 @@ for (let i = 0; i < pipes.length; i++) {
 const p = pipes[i];
 const bottom = p.topHeight + GAP;
 
-// верхняя труба
 ctx.fillStyle = "#228B22";
 ctx.fillRect(p.x, 0, PIPE_WIDTH, p.topHeight);
-
-// нижняя труба (ВАЖНО: без обрезки)
 ctx.fillRect(p.x, bottom, PIPE_WIDTH, cvs.height - bottom);
 
 if (!gameOver) {
-p.x -= PIPE_SPEED;
+p.x -= PIPE_SPEED * dt;
 
 const right = bX + BIRD_WIDTH;
 const bot = bY + BIRD_HEIGHT;
@@ -236,19 +239,16 @@ gameOver = true;
 gameState = "gameover";
 }
 
-// земля (фикс нормальный)
 if (bot >= cvs.height - GROUND_HEIGHT) {
 gameOver = true;
 gameState = "gameover";
 }
 
-// score
 if (!p.passed && p.x + PIPE_WIDTH < bX) {
 p.passed = true;
 score++;
 }
 
-// coin
 const coinY = p.topHeight + GAP / 2;
 
 if (!p.coinTaken) {
@@ -267,7 +267,7 @@ spawnParticles(p.x + 12, coinY + 12);
 }
 }
 
-if (p.x + PIPE_WIDTH < 0) {
+if (p.x + PIPE_WIDTH < -100) {
 pipes.splice(i, 1);
 i--;
 }
@@ -284,15 +284,17 @@ pipes.push(createPipe());
 
 // physics
 if (!gameOver) {
-velocity += GRAVITY;
+velocity += GRAVITY * dt;
+
 if (velocity > MAX_FALL) velocity = MAX_FALL;
 if (velocity < MAX_RISE) velocity = MAX_RISE;
-bY += velocity;
+
+bY += velocity * dt;
 }
 
 drawBird();
 
-// ---------- UI ----------
+// UI
 ctx.fillStyle = "#000";
 ctx.font = "20px Arial";
 ctx.textAlign = "left";
@@ -301,13 +303,13 @@ ctx.textBaseline = "top";
 ctx.fillText("Score: " + score, 10, 10);
 ctx.fillText("Coins: " + coinCount, 10, 35);
 
-// ---------- WIN ----------
+// WIN
 if (score >= MAX_SCORE) {
 gameState = "win";
 gameOver = true;
 }
 
-// ---------- LOADING ----------
+// loading
 if (gameState === "loading") {
 ctx.fillStyle = "rgba(0,0,0,0.85)";
 ctx.fillRect(0, 0, cvs.width, cvs.height);
@@ -322,7 +324,6 @@ ctx.font = "14px Arial";
 ctx.fillText("MADE BY KOLESO FORTUNY", cvs.width / 2, cvs.height / 2 + 20);
 }
 
-// gameover
 if (gameState === "gameover") {
 ctx.fillStyle = "rgba(0,0,0,0.75)";
 ctx.fillRect(0, 0, cvs.width, cvs.height);
@@ -333,7 +334,6 @@ ctx.font = "28px Arial";
 ctx.fillText("GAME OVER", cvs.width / 2, cvs.height / 2);
 }
 
-// win
 if (gameState === "win") {
 ctx.fillStyle = "rgba(0,0,0,0.8)";
 ctx.fillRect(0, 0, cvs.width, cvs.height);
