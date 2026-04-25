@@ -6,8 +6,11 @@ const ctx = cvs.getContext("2d", { alpha: true });
 // ---------- STATE ----------
 let gameState = "loading"; // loading | play | gameover | win
 
-// ---------- TIME ----------
+// ---------- FIXED TIMESTEP ----------
+const FIXED_DT = 1000 / 60; // 16.67 ms
+let accumulator = 0;
 let lastTime = 0;
+let assetsLoaded = false; // все изображения готовы
 
 // ---------- RESOURCES ----------
 const bg = new Image();
@@ -30,10 +33,10 @@ let birdFrameIndex = 0;
 let birdFrameTick = 0;
 
 for (let i = 1; i <= 26; i++) {
-const img = new Image();
-const num = String(i).padStart(3, "0");
-img.src = `src/frames/ezgif-frame-${num}-Photoroom.png`;
-birdFrames.push(img);
+  const img = new Image();
+  const num = String(i).padStart(3, "0");
+  img.src = `src/frames/ezgif-frame-${num}-Photoroom.png`;
+  birdFrames.push(img);
 }
 
 // ---------- SETTINGS ----------
@@ -65,7 +68,6 @@ let score = 0;
 let coinCount = 0;
 
 let gameOver = false;
-let gameStarted = false;
 
 let pipes = [];
 let particles = [];
@@ -77,16 +79,16 @@ cvs.style.display = "block";
 cvs.style.touchAction = "none";
 
 function resizeCanvas() {
-const w = 288;
-const h = 512;
+  const w = 288;
+  const h = 512;
 
-const s = Math.min(window.innerWidth / w, window.innerHeight / h, 1.2);
+  const s = Math.min(window.innerWidth / w, window.innerHeight / h, 1.2);
 
-cvs.width = w;
-cvs.height = h;
+  cvs.width = w;
+  cvs.height = h;
 
-cvs.style.width = w * s + "px";
-cvs.style.height = h * s + "px";
+  cvs.style.width = w * s + "px";
+  cvs.style.height = h * s + "px";
 }
 
 window.addEventListener("resize", resizeCanvas);
@@ -94,261 +96,309 @@ resizeCanvas();
 
 // ---------- PIPE ----------
 function createPipe(offset = 0) {
-return {
-x: cvs.width + offset,
-topHeight: Math.floor(Math.random() * 180) + 60,
-passed: false,
-coinTaken: false
-};
+  return {
+    x: cvs.width + offset,
+    topHeight: Math.floor(Math.random() * 180) + 60,
+    passed: false,
+    coinTaken: false
+  };
 }
 
 function initPipes() {
-pipes = [];
-for (let i = 0; i < 3; i++) {
-pipes.push(createPipe(i * PIPE_DISTANCE));
-}
+  pipes = [];
+  for (let i = 0; i < 3; i++) {
+    pipes.push(createPipe(i * PIPE_DISTANCE));
+  }
 }
 
 // ---------- PARTICLES ----------
 function spawnParticles(x, y) {
-for (let i = 0; i < 10; i++) {
-particles.push({
-x,
-y,
-vx: (Math.random() - 0.5) * 3,
-vy: (Math.random() - 0.5) * 3,
-life: 25
-});
-}
+  for (let i = 0; i < 10; i++) {
+    particles.push({
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 3,
+      vy: (Math.random() - 0.5) * 3,
+      life: 25
+    });
+  }
 }
 
 // ---------- RESET ----------
 function resetGame() {
-bY = 150;
-velocity = 0;
-score = 0;
-coinCount = 0;
-gameOver = false;
-gameState = "play";
+  bY = 150;
+  velocity = 0;
+  score = 0;
+  coinCount = 0;
+  gameOver = false;
+  gameState = "play";
 
-initPipes();
+  initPipes();
+  particles = [];
 
-music.currentTime = 0;
-music.play().catch(() => {});
-}
-
-// ---------- START ----------
-function startGame() {
-if (gameStarted) return;
-
-gameStarted = true;
-initPipes();
-music.play().catch(() => {});
-requestAnimationFrame(draw);
+  music.currentTime = 0;
+  music.play().catch(() => {});
 }
 
 // ---------- INPUT ----------
 function jump(e) {
-if (e) e.preventDefault();
+  if (e) e.preventDefault();
 
-if (gameState === "gameover" || gameState === "win") {
-resetGame();
-return;
-}
+  // Если игра ещё не загружена – игнорируем
+  if (gameState === "loading" && !assetsLoaded) return;
 
-if (!gameStarted) startGame();
+  // Экран готовности: первый клик стартует игру
+  if (gameState === "loading" && assetsLoaded) {
+    resetGame();
+    // сразу применяем прыжок, чтобы игрок не упал мгновенно
+    velocity = JUMP_FORCE;
+    const snd = jumpSound.cloneNode(true);
+    snd.play().catch(() => {});
+    snd.addEventListener("ended", () => snd.remove(), { once: true });
+    return;
+  }
 
-jumpSound.cloneNode(true).play().catch(() => {});
-velocity = JUMP_FORCE;
+  // Перезапуск после завершения
+  if (gameState === "gameover" || gameState === "win") {
+    resetGame();
+    return;
+  }
+
+  // Обычный прыжок во время игры
+  if (gameState === "play") {
+    const snd = jumpSound.cloneNode(true);
+    snd.play().catch(() => {});
+    snd.addEventListener("ended", () => snd.remove(), { once: true });
+    velocity = JUMP_FORCE;
+  }
 }
 
 document.addEventListener("keydown", (e) => {
-if (e.code === "Space") {
-e.preventDefault();
-jump(e);
-}
+  if (e.code === "Space") {
+    e.preventDefault();
+    jump(e);
+  }
 });
 
-cvs.addEventListener("pointerdown", jump);
+cvs.addEventListener("pointerdown", jump, { passive: false }); // важный флаг для быстрого отклика
 
 // ---------- BIRD ----------
 function drawBird() {
-birdFrameTick++;
-
-if (birdFrameTick % 3 === 0) {
-birdFrameIndex = (birdFrameIndex + 1) % birdFrames.length;
+  const frame = birdFrames[birdFrameIndex];
+  if (frame && frame.complete) {
+    ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
+  } else {
+    // Заглушка, если кадр ещё не загружен (не должно происходить после старта)
+    ctx.fillStyle = "#FFD700";
+    ctx.fillRect(bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
+  }
 }
 
-const frame = birdFrames[birdFrameIndex];
+// ---------- UPDATE (fixed timestep) ----------
+function update() {
+  // Обновление кадра анимации птицы
+  birdFrameTick++;
+  if (birdFrameTick % 3 === 0) {
+    birdFrameIndex = (birdFrameIndex + 1) % birdFrames.length;
+  }
 
-if (frame && frame.complete) {
-ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
-}
-}
+  // Физика птицы
+  velocity += GRAVITY;
+  if (velocity > MAX_FALL) velocity = MAX_FALL;
+  if (velocity < MAX_RISE) velocity = MAX_RISE;
+  bY += velocity;
 
-// ---------- DRAW ----------
-function draw(time = 0) {
-const dt = Math.min((time - lastTime) / 16.67, 2);
-lastTime = time;
+  // Защита от вылета координат
+  if (!isFinite(bY) || !isFinite(velocity)) {
+    bY = 150;
+    velocity = 0;
+  }
 
-ctx.clearRect(0, 0, cvs.width, cvs.height);
+  // Проверка земли и столкновений с трубами
+  if (bY + BIRD_HEIGHT >= cvs.height - GROUND_HEIGHT) {
+    gameOver = true;
+    gameState = "gameover";
+  }
 
-// background
-if (bg.complete) {
-ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
-}
+  // Обновление труб
+  for (let i = 0; i < pipes.length; i++) {
+    const p = pipes[i];
+    p.x -= PIPE_SPEED;
 
-// ---------- PARTICLES ----------
-for (let i = 0; i < particles.length; i++) {
-const p = particles[i];
+    const right = bX + BIRD_WIDTH;
+    const bot = bY + BIRD_HEIGHT;
+    const bottom = p.topHeight + GAP;
 
-p.x += p.vx * dt;
-p.y += p.vy * dt;
-p.life--;
+    if (
+      right > p.x &&
+      bX < p.x + PIPE_WIDTH &&
+      (bY < p.topHeight || bot > bottom)
+    ) {
+      gameOver = true;
+      gameState = "gameover";
+    }
 
-ctx.fillStyle = "yellow";
-ctx.fillRect(p.x, p.y, 3, 3);
+    if (!p.passed && p.x + PIPE_WIDTH < bX) {
+      p.passed = true;
+      score++;
+    }
 
-if (p.life <= 0) {
-particles.splice(i, 1);
-i--;
-}
-}
+    // Монета
+    const coinY = p.topHeight + GAP / 2;
+    if (!p.coinTaken) {
+      const hit =
+        bX < p.x + 24 &&
+        bX + BIRD_WIDTH > p.x &&
+        bY < coinY + 24 &&
+        bY + BIRD_HEIGHT > coinY;
+      if (hit) {
+        p.coinTaken = true;
+        coinCount++;
+        spawnParticles(p.x + 12, coinY + 12);
+      }
+    }
+  }
 
-// ---------- PIPES ----------
-for (let i = 0; i < pipes.length; i++) {
-const p = pipes[i];
-const bottom = p.topHeight + GAP;
+  // Удаление труб, ушедших за экран
+  pipes = pipes.filter(p => p.x + PIPE_WIDTH > -100);
 
-ctx.fillStyle = "#228B22";
-ctx.fillRect(p.x, 0, PIPE_WIDTH, p.topHeight);
-ctx.fillRect(p.x, bottom, PIPE_WIDTH, cvs.height - bottom);
+  // Спавн новых труб (если игра не окончена)
+  if (!gameOver) {
+    const last = pipes[pipes.length - 1];
+    if (!last || last.x < cvs.width - PIPE_DISTANCE) {
+      pipes.push(createPipe());
+    }
+  }
 
-if (!gameOver) {
-p.x -= PIPE_SPEED * dt;
+  // Частицы
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+  }
+  particles = particles.filter(p => p.life > 0);
 
-const right = bX + BIRD_WIDTH;
-const bot = bY + BIRD_HEIGHT;
-
-if (
-right > p.x &&
-bX < p.x + PIPE_WIDTH &&
-(bY < p.topHeight || bot > bottom)
-) {
-gameOver = true;
-gameState = "gameover";
-}
-
-if (bot >= cvs.height - GROUND_HEIGHT) {
-gameOver = true;
-gameState = "gameover";
-}
-
-if (!p.passed && p.x + PIPE_WIDTH < bX) {
-p.passed = true;
-score++;
-}
-
-const coinY = p.topHeight + GAP / 2;
-
-if (!p.coinTaken) {
-ctx.drawImage(coinImg, p.x + 10, coinY, 24, 24);
-
-const hit =
-bX < p.x + 24 &&
-bX + BIRD_WIDTH > p.x &&
-bY < coinY + 24 &&
-bY + BIRD_HEIGHT > coinY;
-
-if (hit) {
-p.coinTaken = true;
-coinCount++;
-spawnParticles(p.x + 12, coinY + 12);
-}
-}
-
-if (p.x + PIPE_WIDTH < -100) {
-pipes.splice(i, 1);
-i--;
-}
-}
+  // Условие победы
+  if (score >= MAX_SCORE) {
+    gameState = "win";
+    gameOver = true;
+  }
 }
 
-// spawn pipes
-if (!gameOver) {
-const last = pipes[pipes.length - 1];
-if (last && last.x < cvs.width - PIPE_DISTANCE) {
-pipes.push(createPipe());
+// ---------- RENDER ----------
+function render() {
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+
+  // Фон
+  if (bg.complete) {
+    ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
+  }
+
+  // Трубы
+  for (let i = 0; i < pipes.length; i++) {
+    const p = pipes[i];
+    const bottom = p.topHeight + GAP;
+
+    ctx.fillStyle = "#228B22";
+    ctx.fillRect(p.x, 0, PIPE_WIDTH, p.topHeight);
+    ctx.fillRect(p.x, bottom, PIPE_WIDTH, cvs.height - bottom);
+
+    // Монета
+    if (!p.coinTaken && coinImg.complete) {
+      const coinY = p.topHeight + GAP / 2;
+      ctx.drawImage(coinImg, p.x + 10, coinY, 24, 24);
+    }
+  }
+
+  // Частицы
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    ctx.fillStyle = "yellow";
+    ctx.fillRect(p.x, p.y, 3, 3);
+  }
+
+  // Птица
+  drawBird();
+
+  // UI (очки)
+  ctx.fillStyle = "#000";
+  ctx.font = "20px Arial";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText("Score: " + score, 10, 10);
+  ctx.fillText("Coins: " + coinCount, 10, 35);
+
+  // Оверлей в зависимости от состояния
+  if (gameState === "loading") {
+    ctx.fillStyle = "rgba(0,0,0,0.85)";
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = "22px Arial";
+    if (!assetsLoaded) {
+      ctx.fillText("LOADING...", cvs.width / 2, cvs.height / 2 - 20);
+    } else {
+      ctx.fillText("пироберд", cvs.width / 2, cvs.height / 2 - 20);
+      ctx.font = "14px Arial";
+      ctx.fillText("нажми пробел или пкм в любом месте", cvs.width / 2, cvs.height / 2 + 20);
+    }
+  }
+
+  if (gameState === "gameover") {
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = "28px Arial";
+    ctx.fillText("GAME OVER", cvs.width / 2, cvs.height / 2);
+  }
+
+  if (gameState === "win") {
+    ctx.fillStyle = "rgba(0,0,0,0.8)";
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = "22px Arial";
+    ctx.fillText("ПОЧЕМУ ИЛЬЯ SHOWS 67", cvs.width / 2, cvs.height / 2);
+  }
 }
+
+// ---------- GAME LOOP (fixed timestep) ----------
+function draw(timestamp = 0) {
+  // Защита от первого гигантского скачка
+  if (lastTime === 0) lastTime = timestamp;
+  let dt = timestamp - lastTime;
+  lastTime = timestamp;
+
+  // Ограничиваем максимальный шаг, чтобы избежать спирали смерти
+  if (dt > 100) dt = 100;
+
+  // Проверка загрузки ресурсов во время loading
+  if (gameState === "loading" && !assetsLoaded) {
+    assetsLoaded =
+      bg.complete &&
+      coinImg.complete &&
+      birdFrames.every(f => f.complete);
+  }
+
+  // Накапливаем время и выполняем фиксированные шаги физики
+  accumulator += dt;
+  let steps = 0;
+  while (accumulator >= FIXED_DT && steps < 5) {
+    if (gameState === "play") {
+      update();
+    }
+    accumulator -= FIXED_DT;
+    steps++;
+  }
+
+  // Рендер каждый кадр
+  render();
+
+  requestAnimationFrame(draw);
 }
 
-// physics
-if (!gameOver) {
-velocity += GRAVITY * dt;
-
-if (velocity > MAX_FALL) velocity = MAX_FALL;
-if (velocity < MAX_RISE) velocity = MAX_RISE;
-
-bY += velocity * dt;
-}
-
-drawBird();
-
-// UI
-ctx.fillStyle = "#000";
-ctx.font = "20px Arial";
-ctx.textAlign = "left";
-ctx.textBaseline = "top";
-
-ctx.fillText("Score: " + score, 10, 10);
-ctx.fillText("Coins: " + coinCount, 10, 35);
-
-// WIN
-if (score >= MAX_SCORE) {
-gameState = "win";
-gameOver = true;
-}
-
-// loading
-if (gameState === "loading") {
-ctx.fillStyle = "rgba(0,0,0,0.85)";
-ctx.fillRect(0, 0, cvs.width, cvs.height);
-
-ctx.fillStyle = "#fff";
-ctx.textAlign = "center";
-
-ctx.font = "22px Arial";
-ctx.fillText("PIRATEBIRD", cvs.width / 2, cvs.height / 2 - 20);
-
-ctx.font = "14px Arial";
-ctx.fillText("MADE BY KOLESO FORTUNY", cvs.width / 2, cvs.height / 2 + 20);
-}
-
-if (gameState === "gameover") {
-ctx.fillStyle = "rgba(0,0,0,0.75)";
-ctx.fillRect(0, 0, cvs.width, cvs.height);
-
-ctx.fillStyle = "#fff";
-ctx.textAlign = "center";
-ctx.font = "28px Arial";
-ctx.fillText("GAME OVER", cvs.width / 2, cvs.height / 2);
-}
-
-if (gameState === "win") {
-ctx.fillStyle = "rgba(0,0,0,0.8)";
-ctx.fillRect(0, 0, cvs.width, cvs.height);
-
-ctx.fillStyle = "#fff";
-ctx.textAlign = "center";
-ctx.font = "22px Arial";
-ctx.fillText("ПОЧЕМУ ИЛЬЯ SHOWS 67", cvs.width / 2, cvs.height / 2);
-}
-
+// ---------- ЗАПУСК ЦИКЛА (без ожидания bg.onload) ----------
 requestAnimationFrame(draw);
-}
-
-// ---------- START ----------
-bg.onload = () => {
-gameState = "play";
-startGame();
-};
