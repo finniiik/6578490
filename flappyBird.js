@@ -31,6 +31,34 @@ music.volume = 0.5;
 const jumpSound = new Audio("src/jump.mp3");
 jumpSound.volume = 1;
 
+// ---------- AUDIO POOL для прыжка ----------
+const JUMP_POOL_SIZE = 4;
+const jumpAudioPool = [];
+for (let i = 0; i < JUMP_POOL_SIZE; i++) {
+  const audio = new Audio(jumpSound.src);
+  audio.volume = jumpSound.volume;
+  jumpAudioPool.push(audio);
+}
+let lastJumpSoundTime = 0;
+const JUMP_SOUND_COOLDOWN = 80; // мс
+
+function playJumpSound() {
+  const now = performance.now();
+  if (now - lastJumpSoundTime < JUMP_SOUND_COOLDOWN) return;
+
+  // Ищем первый не играющий экземпляр
+  for (let i = 0; i < jumpAudioPool.length; i++) {
+    const audio = jumpAudioPool[i];
+    if (audio.paused || audio.ended) {
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+      lastJumpSoundTime = now;
+      return;
+    }
+  }
+  // Все заняты – пропускаем, чтобы не накапливать очередь
+}
+
 // ---------- BIRD SPRITES ----------
 const birdFrames = [];
 let birdFrameIndex = 0;
@@ -153,9 +181,7 @@ function jump(e) {
   if (gameState === "loading" && assetsLoaded) {
     resetGame();
     velocity = JUMP_FORCE;
-    const snd = jumpSound.cloneNode(true);
-    snd.play().catch(() => {});
-    snd.addEventListener("ended", () => snd.remove(), { once: true });
+    playJumpSound();
     return;
   }
 
@@ -165,9 +191,7 @@ function jump(e) {
   }
 
   if (gameState === "play") {
-    const snd = jumpSound.cloneNode(true);
-    snd.play().catch(() => {});
-    snd.addEventListener("ended", () => snd.remove(), { once: true });
+    playJumpSound();
     velocity = JUMP_FORCE;
   }
 }
@@ -195,7 +219,6 @@ function drawBird() {
 // ---------- UPDATE (fixed timestep) ----------
 function update() {
   birdFrameTick++;
-  // Адаптивная смена кадров – интервал зависит от производительности
   if (birdFrameTick % birdAnimMod === 0) {
     birdFrameIndex = (birdFrameIndex + 1) % birdFrames.length;
   }
@@ -354,16 +377,14 @@ function draw(timestamp = 0) {
 
   if (dt > 100) dt = 100;
 
-  // Обновление скользящего среднего времени кадра
   frameTimeEMA = frameTimeEMA * 0.9 + dt * 0.1;
 
-  // Выбор интервала смены кадров на основе измеренной производительности
   if (frameTimeEMA < 18) {
-    birdAnimMod = 3;   // отличная производительность
+    birdAnimMod = 3;
   } else if (frameTimeEMA < 24) {
-    birdAnimMod = 5;   // умеренная
+    birdAnimMod = 5;
   } else {
-    birdAnimMod = 7;   // слабое устройство
+    birdAnimMod = 7;
   }
 
   if (gameState === "loading" && !assetsLoaded) {
