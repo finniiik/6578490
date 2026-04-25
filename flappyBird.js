@@ -12,10 +12,6 @@ let accumulator = 0;
 let lastTime = 0;
 let assetsLoaded = false;
 
-// ---------- PERFORMANCE ADAPTATION ----------
-let frameTimeEMA = 16;         // стартовое предположение (60 FPS)
-let birdAnimMod = 3;           // текущий интервал смены кадров (по умолчанию 3)
-
 // ---------- RESOURCES ----------
 const bg = new Image();
 bg.src = "src/bg.png";
@@ -31,7 +27,7 @@ music.volume = 0.5;
 const jumpSound = new Audio("src/jump.mp3");
 jumpSound.volume = 1;
 
-// ---------- AUDIO POOL для прыжка ----------
+// ---------- AUDIO POOL (прыжок) ----------
 const JUMP_POOL_SIZE = 4;
 const jumpAudioPool = [];
 for (let i = 0; i < JUMP_POOL_SIZE; i++) {
@@ -46,7 +42,6 @@ function playJumpSound() {
   const now = performance.now();
   if (now - lastJumpSoundTime < JUMP_SOUND_COOLDOWN) return;
 
-  // Ищем первый не играющий экземпляр
   for (let i = 0; i < jumpAudioPool.length; i++) {
     const audio = jumpAudioPool[i];
     if (audio.paused || audio.ended) {
@@ -56,7 +51,7 @@ function playJumpSound() {
       return;
     }
   }
-  // Все заняты – пропускаем, чтобы не накапливать очередь
+  // все заняты — не копим очередь
 }
 
 // ---------- BIRD SPRITES ----------
@@ -90,6 +85,10 @@ const MAX_RISE = -9;
 const MAX_SCORE = 67;
 
 const GROUND_HEIGHT = 50;
+
+// ---------- ЛИМИТЫ ----------
+const MAX_PARTICLES = 30;        // жёсткий предел для частиц
+const BIRD_ANIM_INTERVAL = 4;    // смена кадра каждые 4 логических тика
 
 // ---------- STATE ----------
 let bX = 20;
@@ -145,7 +144,11 @@ function initPipes() {
 
 // ---------- PARTICLES ----------
 function spawnParticles(x, y) {
-  for (let i = 0; i < 10; i++) {
+  // Жёсткий лимит – не создаём новые, если превышен
+  if (particles.length >= MAX_PARTICLES) return;
+
+  const toSpawn = Math.min(10, MAX_PARTICLES - particles.length);
+  for (let i = 0; i < toSpawn; i++) {
     particles.push({
       x,
       y,
@@ -211,6 +214,7 @@ function drawBird() {
   if (frame && frame.complete) {
     ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
   } else {
+    // запасной вариант, если кадр не готов (не должно случаться после старта)
     ctx.fillStyle = "#FFD700";
     ctx.fillRect(bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
   }
@@ -219,7 +223,8 @@ function drawBird() {
 // ---------- UPDATE (fixed timestep) ----------
 function update() {
   birdFrameTick++;
-  if (birdFrameTick % birdAnimMod === 0) {
+  // фиксированный интервал смены кадров для облегчения нагрузки
+  if (birdFrameTick % BIRD_ANIM_INTERVAL === 0) {
     birdFrameIndex = (birdFrameIndex + 1) % birdFrames.length;
   }
 
@@ -228,6 +233,7 @@ function update() {
   if (velocity < MAX_RISE) velocity = MAX_RISE;
   bY += velocity;
 
+  // защита от NaN/Infinity
   if (!isFinite(bY) || !isFinite(velocity)) {
     bY = 150;
     velocity = 0;
@@ -275,6 +281,7 @@ function update() {
     }
   }
 
+  // Быстрая очистка массивов без splice в цикле
   pipes = pipes.filter(p => p.x + PIPE_WIDTH > -100);
 
   if (!gameOver) {
@@ -298,7 +305,7 @@ function update() {
   }
 }
 
-// ---------- RENDER ----------
+// ---------- RENDER (минималистичный) ----------
 function render() {
   ctx.clearRect(0, 0, cvs.width, cvs.height);
 
@@ -369,24 +376,16 @@ function render() {
   }
 }
 
-// ---------- GAME LOOP (производительность + fixed timestep) ----------
+// ---------- GAME LOOP (упрощённый) ----------
 function draw(timestamp = 0) {
   if (lastTime === 0) lastTime = timestamp;
   let dt = timestamp - lastTime;
   lastTime = timestamp;
 
+  // ограничиваем скачок, чтобы избежать спирали смерти
   if (dt > 100) dt = 100;
 
-  frameTimeEMA = frameTimeEMA * 0.9 + dt * 0.1;
-
-  if (frameTimeEMA < 18) {
-    birdAnimMod = 3;
-  } else if (frameTimeEMA < 24) {
-    birdAnimMod = 5;
-  } else {
-    birdAnimMod = 7;
-  }
-
+  // проверка загрузки ассетов (только пока loading)
   if (gameState === "loading" && !assetsLoaded) {
     assetsLoaded =
       bg.complete &&
