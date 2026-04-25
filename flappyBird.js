@@ -116,17 +116,14 @@ cvs.style.display = "block";
 function resizeCanvas() {
   const w = 288;
   const h = 512;
-
   const dpr = 1;
 
   cvs.width = w * dpr;
   cvs.height = h * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const scale = isMobile
-    ? Math.max(window.innerWidth / w, window.innerHeight / h)
-    : Math.min(window.innerWidth / w, window.innerHeight / h, 1.2);
-
+  // Всегда вписываем canvas, чтобы избежать обрезки
+  const scale = Math.min(window.innerWidth / w, window.innerHeight / h, 1.5);
   cvs.style.width = w * scale + "px";
   cvs.style.height = h * scale + "px";
 }
@@ -257,7 +254,7 @@ function update() {
 
 // ---------- RENDER ----------
 function render() {
-  // Сброс состояния контекста для чистого начала кадра
+  // Сброс контекста перед каждым кадром
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
@@ -281,11 +278,11 @@ function render() {
     ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
   }
 
-  // ---------- SCORE (всегда слева сверху) ----------
+  // ---------- SCORE (всегда сверху слева) ----------
   ctx.fillStyle = "#000";
   ctx.font = "20px Arial";
-  ctx.textAlign = "left";      // 🔧 Явное выравнивание
-  ctx.textBaseline = "top";    // 🔧 Вертикальная привязка
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
   ctx.fillText("Score: " + score, 10, 10);
 
   // ---------- OVERLAYS ----------
