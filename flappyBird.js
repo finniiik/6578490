@@ -10,7 +10,11 @@ let gameState = "loading"; // loading | play | gameover | win
 const FIXED_DT = 1000 / 60; // 16.67 ms
 let accumulator = 0;
 let lastTime = 0;
-let assetsLoaded = false; // все изображения готовы
+let assetsLoaded = false;
+
+// ---------- PERFORMANCE ADAPTATION ----------
+let frameTimeEMA = 16;         // стартовое предположение (60 FPS)
+let birdAnimMod = 3;           // текущий интервал смены кадров (по умолчанию 3)
 
 // ---------- RESOURCES ----------
 const bg = new Image();
@@ -144,13 +148,10 @@ function resetGame() {
 function jump(e) {
   if (e) e.preventDefault();
 
-  // Если игра ещё не загружена – игнорируем
   if (gameState === "loading" && !assetsLoaded) return;
 
-  // Экран готовности: первый клик стартует игру
   if (gameState === "loading" && assetsLoaded) {
     resetGame();
-    // сразу применяем прыжок, чтобы игрок не упал мгновенно
     velocity = JUMP_FORCE;
     const snd = jumpSound.cloneNode(true);
     snd.play().catch(() => {});
@@ -158,13 +159,11 @@ function jump(e) {
     return;
   }
 
-  // Перезапуск после завершения
   if (gameState === "gameover" || gameState === "win") {
     resetGame();
     return;
   }
 
-  // Обычный прыжок во время игры
   if (gameState === "play") {
     const snd = jumpSound.cloneNode(true);
     snd.play().catch(() => {});
@@ -180,7 +179,7 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-cvs.addEventListener("pointerdown", jump, { passive: false }); // важный флаг для быстрого отклика
+cvs.addEventListener("pointerdown", jump, { passive: false });
 
 // ---------- BIRD ----------
 function drawBird() {
@@ -188,7 +187,6 @@ function drawBird() {
   if (frame && frame.complete) {
     ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
   } else {
-    // Заглушка, если кадр ещё не загружен (не должно происходить после старта)
     ctx.fillStyle = "#FFD700";
     ctx.fillRect(bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
   }
@@ -196,31 +194,27 @@ function drawBird() {
 
 // ---------- UPDATE (fixed timestep) ----------
 function update() {
-  // Обновление кадра анимации птицы
   birdFrameTick++;
-  if (birdFrameTick % 3 === 0) {
+  // Адаптивная смена кадров – интервал зависит от производительности
+  if (birdFrameTick % birdAnimMod === 0) {
     birdFrameIndex = (birdFrameIndex + 1) % birdFrames.length;
   }
 
-  // Физика птицы
   velocity += GRAVITY;
   if (velocity > MAX_FALL) velocity = MAX_FALL;
   if (velocity < MAX_RISE) velocity = MAX_RISE;
   bY += velocity;
 
-  // Защита от вылета координат
   if (!isFinite(bY) || !isFinite(velocity)) {
     bY = 150;
     velocity = 0;
   }
 
-  // Проверка земли и столкновений с трубами
   if (bY + BIRD_HEIGHT >= cvs.height - GROUND_HEIGHT) {
     gameOver = true;
     gameState = "gameover";
   }
 
-  // Обновление труб
   for (let i = 0; i < pipes.length; i++) {
     const p = pipes[i];
     p.x -= PIPE_SPEED;
@@ -243,7 +237,6 @@ function update() {
       score++;
     }
 
-    // Монета
     const coinY = p.topHeight + GAP / 2;
     if (!p.coinTaken) {
       const hit =
@@ -259,10 +252,8 @@ function update() {
     }
   }
 
-  // Удаление труб, ушедших за экран
   pipes = pipes.filter(p => p.x + PIPE_WIDTH > -100);
 
-  // Спавн новых труб (если игра не окончена)
   if (!gameOver) {
     const last = pipes[pipes.length - 1];
     if (!last || last.x < cvs.width - PIPE_DISTANCE) {
@@ -270,7 +261,6 @@ function update() {
     }
   }
 
-  // Частицы
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
     p.x += p.vx;
@@ -279,7 +269,6 @@ function update() {
   }
   particles = particles.filter(p => p.life > 0);
 
-  // Условие победы
   if (score >= MAX_SCORE) {
     gameState = "win";
     gameOver = true;
@@ -290,12 +279,10 @@ function update() {
 function render() {
   ctx.clearRect(0, 0, cvs.width, cvs.height);
 
-  // Фон
   if (bg.complete) {
     ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
   }
 
-  // Трубы
   for (let i = 0; i < pipes.length; i++) {
     const p = pipes[i];
     const bottom = p.topHeight + GAP;
@@ -304,24 +291,20 @@ function render() {
     ctx.fillRect(p.x, 0, PIPE_WIDTH, p.topHeight);
     ctx.fillRect(p.x, bottom, PIPE_WIDTH, cvs.height - bottom);
 
-    // Монета
     if (!p.coinTaken && coinImg.complete) {
       const coinY = p.topHeight + GAP / 2;
       ctx.drawImage(coinImg, p.x + 10, coinY, 24, 24);
     }
   }
 
-  // Частицы
   for (let i = 0; i < particles.length; i++) {
     const p = particles[i];
     ctx.fillStyle = "yellow";
     ctx.fillRect(p.x, p.y, 3, 3);
   }
 
-  // Птица
   drawBird();
 
-  // UI (очки)
   ctx.fillStyle = "#000";
   ctx.font = "20px Arial";
   ctx.textAlign = "left";
@@ -329,11 +312,9 @@ function render() {
   ctx.fillText("Score: " + score, 10, 10);
   ctx.fillText("Coins: " + coinCount, 10, 35);
 
-  // Оверлей в зависимости от состояния
   if (gameState === "loading") {
     ctx.fillStyle = "rgba(0,0,0,0.85)";
     ctx.fillRect(0, 0, cvs.width, cvs.height);
-
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     ctx.font = "22px Arial";
@@ -342,7 +323,7 @@ function render() {
     } else {
       ctx.fillText("пироберд", cvs.width / 2, cvs.height / 2 - 20);
       ctx.font = "14px Arial";
-      ctx.fillText("нажми пробел или пкм в любом месте", cvs.width / 2, cvs.height / 2 + 20);
+      ctx.fillText("клацай или пкм по любому месту", cvs.width / 2, cvs.height / 2 + 20);
     }
   }
 
@@ -365,17 +346,26 @@ function render() {
   }
 }
 
-// ---------- GAME LOOP (fixed timestep) ----------
+// ---------- GAME LOOP (производительность + fixed timestep) ----------
 function draw(timestamp = 0) {
-  // Защита от первого гигантского скачка
   if (lastTime === 0) lastTime = timestamp;
   let dt = timestamp - lastTime;
   lastTime = timestamp;
 
-  // Ограничиваем максимальный шаг, чтобы избежать спирали смерти
   if (dt > 100) dt = 100;
 
-  // Проверка загрузки ресурсов во время loading
+  // Обновление скользящего среднего времени кадра
+  frameTimeEMA = frameTimeEMA * 0.9 + dt * 0.1;
+
+  // Выбор интервала смены кадров на основе измеренной производительности
+  if (frameTimeEMA < 18) {
+    birdAnimMod = 3;   // отличная производительность
+  } else if (frameTimeEMA < 24) {
+    birdAnimMod = 5;   // умеренная
+  } else {
+    birdAnimMod = 7;   // слабое устройство
+  }
+
   if (gameState === "loading" && !assetsLoaded) {
     assetsLoaded =
       bg.complete &&
@@ -383,7 +373,6 @@ function draw(timestamp = 0) {
       birdFrames.every(f => f.complete);
   }
 
-  // Накапливаем время и выполняем фиксированные шаги физики
   accumulator += dt;
   let steps = 0;
   while (accumulator >= FIXED_DT && steps < 5) {
@@ -394,11 +383,9 @@ function draw(timestamp = 0) {
     steps++;
   }
 
-  // Рендер каждый кадр
   render();
-
   requestAnimationFrame(draw);
 }
 
-// ---------- ЗАПУСК ЦИКЛА (без ожидания bg.onload) ----------
+// ---------- ЗАПУСК ----------
 requestAnimationFrame(draw);
