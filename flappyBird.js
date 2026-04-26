@@ -88,8 +88,8 @@ const PIPE_DISTANCE = 220;
 const GRAVITY = 0.45;
 const JUMP_FORCE = -7.5;
 
-const BIRD_WIDTH = 45;
-const BIRD_HEIGHT = 50;
+const BIRD_WIDTH = 55;
+const BIRD_HEIGHT = 45;
 
 const MAX_FALL = 7;
 const MAX_RISE = -9;
@@ -113,6 +113,34 @@ document.body.style.margin = "0";
 document.body.style.overflow = "hidden";
 cvs.style.display = "block";
 
+// ---------- WIN VIDEO ----------
+const winVideo = document.createElement("video");
+winVideo.src = "src/mzlff.mp4";
+winVideo.autoplay = false;
+winVideo.loop = true;
+winVideo.muted = true;
+winVideo.playsInline = true;
+
+winVideo.style.position = "absolute";
+winVideo.style.display = "none";
+winVideo.style.zIndex = "10";
+winVideo.style.objectFit = "cover";
+winVideo.style.borderRadius = "12px";
+
+document.body.appendChild(winVideo);
+
+function positionWinVideo() {
+  const rect = cvs.getBoundingClientRect();
+
+  const videoWidth = rect.width * 0.75;
+  const videoHeight = rect.height * 0.35;
+
+  winVideo.style.width = `${videoWidth}px`;
+  winVideo.style.height = `${videoHeight}px`;
+  winVideo.style.left = `${rect.left + rect.width * 0.125}px`;
+  winVideo.style.top = `${rect.top + rect.height * 0.32}px`;
+}
+
 function resizeCanvas() {
   const w = 288;
   const h = 512;
@@ -122,10 +150,11 @@ function resizeCanvas() {
   cvs.height = h * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // Всегда вписываем canvas, чтобы избежать обрезки
   const scale = Math.min(window.innerWidth / w, window.innerHeight / h, 1.5);
   cvs.style.width = w * scale + "px";
   cvs.style.height = h * scale + "px";
+
+  positionWinVideo();
 }
 
 window.addEventListener("resize", resizeCanvas);
@@ -160,6 +189,9 @@ function resetGame() {
 
   initPipes();
 
+  winVideo.pause();
+  winVideo.style.display = "none";
+
   music.currentTime = 0;
   music.play().catch(() => {});
 }
@@ -177,7 +209,12 @@ function jump(e) {
     return;
   }
 
-  if (gameState === "gameover" || gameState === "win") {
+  if (gameState === "gameover") {
+    resetGame();
+    return;
+  }
+
+  if (gameState === "win") {
     resetGame();
     return;
   }
@@ -254,7 +291,6 @@ function update() {
 
 // ---------- RENDER ----------
 function render() {
-  // Сброс контекста перед каждым кадром
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
@@ -278,14 +314,12 @@ function render() {
     ctx.drawImage(frame, bX, bY, BIRD_WIDTH, BIRD_HEIGHT);
   }
 
-  // ---------- SCORE (всегда сверху слева) ----------
   ctx.fillStyle = "#000";
   ctx.font = "20px Arial";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillText("Score: " + score, 10, 10);
 
-  // ---------- OVERLAYS ----------
   if (gameState === "loading") {
     ctx.fillStyle = "rgba(0,0,0,0.85)";
     ctx.fillRect(0, 0, cvs.width, cvs.height);
@@ -303,17 +337,27 @@ function render() {
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("GAME OVER", cvs.width / 2, cvs.height / 2);
+    ctx.fillText("VIDEOGAME OVER", cvs.width / 2, cvs.height / 2);
   }
 
   if (gameState === "win") {
-    ctx.fillStyle = "rgba(0,0,0,0.8)";
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
     ctx.fillRect(0, 0, cvs.width, cvs.height);
 
+    positionWinVideo();
+
+    if (winVideo.style.display === "none") {
+      winVideo.style.display = "block";
+      winVideo.play().catch(() => {});
+    }
+
     ctx.fillStyle = "#fff";
+    ctx.font = "22px Arial";
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("ПОЧЕМУ ИЛЬЯ SHOWS 67", cvs.width / 2, cvs.height / 2);
+    ctx.fillText("ПОЧЕМУ ИЛЬЯ SHOWS 67", cvs.width / 2, cvs.height * 0.23);
+
+    ctx.font = "14px Arial";
+    ctx.fillText("Нажми для рестарта", cvs.width / 2, cvs.height * 0.75);
   }
 }
 
