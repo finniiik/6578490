@@ -77,18 +77,28 @@ function playJumpSound() {
 }
 
 // ---------- BIRDS (массивы кадров) ----------
+function loadFrame(src) {
+  const img = new Image();
+  // decoding async помогает Safari/iOS быстрее показывать готовые кадры
+  try { img.decoding = "async"; } catch (e) {}
+  try { img.loading = "eager"; } catch (e) {}
+  img.src = src;
+  // Принудительный decode — фикс для случаев, когда complete=true,
+  // но кадр ещё не отрисовывается (бывает в Chrome/Android и iOS Safari).
+  if (img.decode) {
+    img.decode().catch(() => {});
+  }
+  return img;
+}
+
 const bird1Frames = [];
 for (let n of bird1FrameNumbers) {
-  const img = new Image();
-  img.src = `src/frames/ezgif-frame-${String(n).padStart(3, "0")}-Photoroom.png`;
-  bird1Frames.push(img);
+  bird1Frames.push(loadFrame(`src/frames/ezgif-frame-${String(n).padStart(3, "0")}-Photoroom.png`));
 }
 
 const bird2Frames = [];
 for (let n of bird2FrameNumbers) {
-  const img = new Image();
-  img.src = `src/frames2/frame-${String(n).padStart(3, "0")}.png`;
-  bird2Frames.push(img);
+  bird2Frames.push(loadFrame(`src/frames2/frame-${String(n).padStart(3, "0")}.png`));
 }
 
 // Текущий выбранный персонаж: 0 — первая, 1 — вторая
@@ -99,9 +109,15 @@ let birdFrameIndex = 0;
 let birdFrameTick = 0;
 
 function getFrame() {
-  for (let i = 0; i < activeFrames.length; i++) {
-    const f = activeFrames[(birdFrameIndex + i) % activeFrames.length];
-    if (f.complete && f.naturalWidth) return f;
+  const n = activeFrames.length;
+  if (!n) return null;
+  // Сначала пытаемся показать текущий кадр анимации
+  const cur = activeFrames[birdFrameIndex % n];
+  if (cur && cur.complete && cur.naturalWidth) return cur;
+  // Иначе — любой уже загруженный кадр выбранной птички
+  for (let i = 0; i < n; i++) {
+    const f = activeFrames[i];
+    if (f && f.complete && f.naturalWidth) return f;
   }
   return null;
 }
@@ -114,8 +130,8 @@ const PIPE_DISTANCE = 220;
 const GRAVITY = 0.45;
 const JUMP_FORCE = -7.5;
 
-const BIRD_WIDTH = 65;
-const BIRD_HEIGHT = 55;
+const BIRD_WIDTH = 55;
+const BIRD_HEIGHT = 45;
 
 const MAX_FALL = 7;
 const MAX_RISE = -9;
