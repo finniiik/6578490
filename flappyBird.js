@@ -91,19 +91,63 @@ function loadFrame(src) {
   return img;
 }
 
-const bird1Frames = [];
-for (let n of bird1FrameNumbers) {
-  bird1Frames.push(loadFrame(`src/frames/ezgif-frame-${String(n).padStart(3, "0")}-Photoroom.png`));
+function isRenderableImage(img) {
+  return !!(img && img.complete && img.naturalWidth);
 }
 
-const bird2Frames = [];
-for (let n of bird2FrameNumbers) {
-  bird2Frames.push(loadFrame(`src/frames2/frame-${String(n).padStart(3, "0")}.png`));
+function waitForAnyFrame(frames, timeout = 2500) {
+  return new Promise(resolve => {
+    if (!frames.length) {
+      resolve(false);
+      return;
+    }
+
+    if (frames.some(isRenderableImage)) {
+      resolve(true);
+      return;
+    }
+
+    let settled = false;
+    let failed = 0;
+
+    function finish(value) {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    }
+
+    frames.forEach(img => {
+      img.addEventListener("load", () => finish(true), { once: true });
+      img.addEventListener("error", () => {
+        failed++;
+        if (failed >= frames.length) finish(false);
+      }, { once: true });
+    });
+
+    setTimeout(() => finish(frames.some(isRenderableImage)), timeout);
+  });
+}
+
+const birdFrameCache = [null, null];
+
+function getBirdFrames(idx) {
+  if (birdFrameCache[idx]) return birdFrameCache[idx];
+
+  const frameNumbers = idx === 1 ? bird2FrameNumbers : bird1FrameNumbers;
+  const frames = frameNumbers.map(n => {
+    const num = String(n).padStart(3, "0");
+    return idx === 1
+      ? loadFrame(`src/frames2/frame-${num}.png`)
+      : loadFrame(`src/frames/ezgif-frame-${num}-Photoroom.png`);
+  });
+
+  birdFrameCache[idx] = frames;
+  return frames;
 }
 
 // Текущий выбранный персонаж: 0 — первая, 1 — вторая
 let currentBird = 0;
-let activeFrames = bird1Frames;
+let activeFrames = [];
 
 let birdFrameIndex = 0;
 let birdFrameTick = 0;
@@ -113,11 +157,11 @@ function getFrame() {
   if (!n) return null;
   // Сначала пытаемся показать текущий кадр анимации
   const cur = activeFrames[birdFrameIndex % n];
-  if (cur && cur.complete && cur.naturalWidth) return cur;
+  if (isRenderableImage(cur)) return cur;
   // Иначе — любой уже загруженный кадр выбранной птички
   for (let i = 0; i < n; i++) {
     const f = activeFrames[i];
-    if (f && f.complete && f.naturalWidth) return f;
+    if (isRenderableImage(f)) return f;
   }
   return null;
 }
@@ -297,15 +341,18 @@ cvs.addEventListener("pointerdown", jump);
 // ---------- CHARACTER SELECT MENU ----------
 const charSelectEl = document.getElementById("char-select");
 
-function selectBird(idx) {
+async function selectBird(idx) {
   currentBird = idx;
-  activeFrames = idx === 1 ? bird2Frames : bird1Frames;
+  assetsLoaded = false;
+  activeFrames = getBirdFrames(idx);
   birdFrameIndex = 0;
   birdFrameTick = 0;
 
   if (charSelectEl) charSelectEl.classList.add("hidden");
-  // Переходим в loading — клик по канвасу/пробел запустит игру (как раньше).
   gameState = "loading";
+
+  const ready = await waitForAnyFrame(activeFrames);
+  assetsLoaded = ready || !!getFrame();
 }
 
 if (charSelectEl) {
@@ -425,7 +472,7 @@ function render() {
     ctx.font = "20px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("TAP TO START", cvs.width / 2, cvs.height / 2);
+    ctx.fillText(assetsLoaded ? "TAP TO START" : "LOADING BIRD...", cvs.width / 2, cvs.height / 2);
   }
 
   if (gameState === "gameover") {
@@ -471,6 +518,10 @@ function draw(t = 0) {
 
   if (dt > 100) dt = 100;
 
+  if (gameState === "loading" && !assetsLoaded && getFrame()) {
+    assetsLoaded = true;
+  }
+
   if (gameState === "play") {
     accumulator += dt;
 
@@ -495,10 +546,6 @@ function draw(t = 0) {
   requestAnimationFrame(draw);
 }
 
-bg.onload = () => {
-  assetsLoaded = true;
-};
-// На случай, если bg не загрузится — игра всё равно стартует после выбора.
-setTimeout(() => { assetsLoaded = true; }, 1500);
+bg.onload = () => {};
 
 requestAnimationFrame(draw);
