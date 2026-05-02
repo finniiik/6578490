@@ -5,7 +5,7 @@ const ctx = cvs.getContext("2d", { alpha: true });
 ctx.imageSmoothingEnabled = true;
 
 // ---------- STATE ----------
-let gameState = "loading";
+let gameState = "menu"; // menu -> loading -> play -> gameover/win
 
 // ---------- TIMING ----------
 const FIXED_DT = 1000 / 60;
@@ -22,10 +22,15 @@ const isMobile =
   /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
   (window.innerWidth <= 900 && "ontouchstart" in window);
 
-// ---------- BIRD FRAMES ----------
-const birdFrameNumbers = isMobile
+// ---------- BIRD FRAMES (общие настройки) ----------
+// На мобильных берём каждый ~3-4й кадр для оптимизации.
+const bird1FrameNumbers = isMobile
   ? [1, 4, 7, 10, 13, 16, 19, 22]
   : Array.from({ length: 26 }, (_, i) => i + 1);
+
+const bird2FrameNumbers = isMobile
+  ? [1, 4, 7, 10, 13, 16, 19, 22, 25]
+  : Array.from({ length: 25 }, (_, i) => i + 1);
 
 const BIRD_ANIM_INTERVAL = isMobile ? 10 : 6;
 
@@ -38,12 +43,21 @@ const music = new Audio("src/music.mp3");
 music.loop = true;
 music.volume = 0.5;
 
-const jumpAudioPool = [];
-for (let i = 0; i < 3; i++) {
-  const a = new Audio("src/jump.mp3");
-  a.volume = 1;
-  jumpAudioPool.push(a);
+// Пул звуков для каждой птички отдельно
+function makePool(src, size = 3, volume = 1) {
+  const pool = [];
+  for (let i = 0; i < size; i++) {
+    const a = new Audio(src);
+    a.volume = volume;
+    pool.push(a);
+  }
+  return pool;
 }
+
+const jumpPools = [
+  makePool("src/jump.mp3", 3, 1),   // птичка 0
+  makePool("src/alisa.mp3", 3, 1),  // птичка 1
+];
 
 let lastJumpSoundTime = 0;
 
@@ -51,7 +65,8 @@ function playJumpSound() {
   const now = performance.now();
   if (now - lastJumpSoundTime < 90) return;
 
-  for (let a of jumpAudioPool) {
+  const pool = jumpPools[currentBird] || jumpPools[0];
+  for (let a of pool) {
     if (a.paused || a.ended) {
       a.currentTime = 0;
       a.play().catch(() => {});
@@ -61,20 +76,31 @@ function playJumpSound() {
   }
 }
 
-// ---------- BIRD ----------
-const birdFrames = [];
+// ---------- BIRDS (массивы кадров) ----------
+const bird1Frames = [];
+for (let n of bird1FrameNumbers) {
+  const img = new Image();
+  img.src = `src/frames/ezgif-frame-${String(n).padStart(3, "0")}-Photoroom.png`;
+  bird1Frames.push(img);
+}
+
+const bird2Frames = [];
+for (let n of bird2FrameNumbers) {
+  const img = new Image();
+  img.src = `src/frames2/frame-${String(n).padStart(3, "0")}.png`;
+  bird2Frames.push(img);
+}
+
+// Текущий выбранный персонаж: 0 — первая, 1 — вторая
+let currentBird = 0;
+let activeFrames = bird1Frames;
+
 let birdFrameIndex = 0;
 let birdFrameTick = 0;
 
-for (let n of birdFrameNumbers) {
-  const img = new Image();
-  img.src = `src/frames/ezgif-frame-${String(n).padStart(3, "0")}-Photoroom.png`;
-  birdFrames.push(img);
-}
-
 function getFrame() {
-  for (let i = 0; i < birdFrames.length; i++) {
-    const f = birdFrames[(birdFrameIndex + i) % birdFrames.length];
+  for (let i = 0; i < activeFrames.length; i++) {
+    const f = activeFrames[(birdFrameIndex + i) % activeFrames.length];
     if (f.complete && f.naturalWidth) return f;
   }
   return null;
@@ -88,8 +114,8 @@ const PIPE_DISTANCE = 220;
 const GRAVITY = 0.45;
 const JUMP_FORCE = -7.5;
 
-const BIRD_WIDTH = 55;
-const BIRD_HEIGHT = 45;
+const BIRD_WIDTH = 65;
+const BIRD_HEIGHT = 55;
 
 const MAX_FALL = 7;
 const MAX_RISE = -9;
@@ -107,6 +133,23 @@ let velocity = 0;
 let score = 0;
 let gameOver = false;
 let pipes = [];
+
+// ---------- HIGH SCORE (localStorage) ----------
+const HS_KEY = "pirobird_highscore";
+let highScore = 0;
+try {
+  const v = parseInt(localStorage.getItem(HS_KEY) || "0", 10);
+  if (!isNaN(v)) highScore = v;
+} catch (e) {}
+
+function maybeSaveHighScore() {
+  if (score > highScore) {
+    highScore = score;
+    try {
+      localStorage.setItem(HS_KEY, String(highScore));
+    } catch (e) {}
+  }
+}
 
 // ---------- CANVAS ----------
 document.body.style.margin = "0";
@@ -200,6 +243,9 @@ function resetGame() {
 function jump(e) {
   if (e) e.preventDefault();
 
+  // В меню выбора — игнорируем клики по канвасу.
+  if (gameState === "menu") return;
+
   if (gameState === "loading" && !assetsLoaded) return;
 
   if (gameState === "loading") {
@@ -232,12 +278,36 @@ document.addEventListener("keydown", e => {
 
 cvs.addEventListener("pointerdown", jump);
 
+// ---------- CHARACTER SELECT MENU ----------
+const charSelectEl = document.getElementById("char-select");
+
+function selectBird(idx) {
+  currentBird = idx;
+  activeFrames = idx === 1 ? bird2Frames : bird1Frames;
+  birdFrameIndex = 0;
+  birdFrameTick = 0;
+
+  if (charSelectEl) charSelectEl.classList.add("hidden");
+  // Переходим в loading — клик по канвасу/пробел запустит игру (как раньше).
+  gameState = "loading";
+}
+
+if (charSelectEl) {
+  const cards = charSelectEl.querySelectorAll(".cs-card");
+  cards.forEach(card => {
+    card.addEventListener("click", () => {
+      const idx = parseInt(card.getAttribute("data-bird") || "0", 10);
+      selectBird(idx);
+    });
+  });
+}
+
 // ---------- UPDATE ----------
 function update() {
   birdFrameTick++;
   if (birdFrameTick >= BIRD_ANIM_INTERVAL) {
     birdFrameTick = 0;
-    birdFrameIndex = (birdFrameIndex + 1) % birdFrames.length;
+    birdFrameIndex = (birdFrameIndex + 1) % activeFrames.length;
   }
 
   velocity += GRAVITY;
@@ -247,6 +317,7 @@ function update() {
   if (bY + BIRD_HEIGHT >= cvs.height - GROUND_HEIGHT) {
     gameOver = true;
     gameState = "gameover";
+    maybeSaveHighScore();
   }
 
   for (let i = 0; i < pipes.length; i++) {
@@ -262,6 +333,7 @@ function update() {
     ) {
       gameOver = true;
       gameState = "gameover";
+      maybeSaveHighScore();
     }
 
     if (!p.passed && p.x + PIPE_WIDTH < bX) {
@@ -286,6 +358,7 @@ function update() {
   if (score >= MAX_SCORE) {
     gameState = "win";
     gameOver = true;
+    maybeSaveHighScore();
   }
 }
 
@@ -319,15 +392,24 @@ function render() {
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillText("Score: " + score, 10, 10);
+  ctx.font = "14px Arial";
+  ctx.fillText("Best: " + highScore, 10, 34);
+
+  if (gameState === "menu") {
+    // Канвас за оверлеем — просто затемним фон.
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+  }
 
   if (gameState === "loading") {
     ctx.fillStyle = "rgba(0,0,0,0.85)";
     ctx.fillRect(0, 0, cvs.width, cvs.height);
 
     ctx.fillStyle = "#fff";
+    ctx.font = "20px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("LOADING...", cvs.width / 2, cvs.height / 2);
+    ctx.fillText("TAP TO START", cvs.width / 2, cvs.height / 2);
   }
 
   if (gameState === "gameover") {
@@ -335,9 +417,12 @@ function render() {
     ctx.fillRect(0, 0, cvs.width, cvs.height);
 
     ctx.fillStyle = "#fff";
+    ctx.font = "20px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("VIDEOGAME OVER", cvs.width / 2, cvs.height / 2);
+    ctx.fillText("VIDEOGAME OVER", cvs.width / 2, cvs.height / 2 - 18);
+    ctx.font = "14px Arial";
+    ctx.fillText("Score: " + score + "   Best: " + highScore, cvs.width / 2, cvs.height / 2 + 14);
   }
 
   if (gameState === "win") {
@@ -397,5 +482,7 @@ function draw(t = 0) {
 bg.onload = () => {
   assetsLoaded = true;
 };
+// На случай, если bg не загрузится — игра всё равно стартует после выбора.
+setTimeout(() => { assetsLoaded = true; }, 1500);
 
 requestAnimationFrame(draw);
